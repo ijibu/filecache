@@ -21,9 +21,9 @@ const VERSION = "1.0.2"
 // File size constants for use with FileCache.MaxSize.
 // For example, cache.MaxSize = 64 * Megabyte
 const (
-	Kilobyte = 1024
-	Megabyte = 1024 * 1024
-	Gigabyte = 1024 * 1024 * 1024
+	Kilobyte = 1024               //单位KB
+	Megabyte = 1024 * 1024        //单位MB
+	Gigabyte = 1024 * 1024 * 1024 //单位GB
 )
 
 var (
@@ -46,25 +46,29 @@ var SquelchItemNotInCache = true
 // Mumber of items to buffer adding to the file cache.
 var NewCachePipeSize = 4
 
+//缓存项
 type cacheItem struct {
-	content    []byte
-	lock       sync.Mutex
-	Size       int64
-	Lastaccess time.Time
-	Modified   time.Time
+	content    []byte     //缓存内容
+	lock       sync.Mutex //锁
+	Size       int64      //内容大小
+	Lastaccess time.Time  //最近访问时间
+	Modified   time.Time  //最近更新时间
 }
 
+//缓存是否被更新
 func (itm *cacheItem) WasModified(fi os.FileInfo) bool {
 	itm.lock.Lock()
 	defer itm.lock.Unlock()
 	return itm.Modified.Equal(fi.ModTime())
 }
 
+//获取缓存的内容
 func (itm *cacheItem) GetReader() io.Reader {
 	b := bytes.NewReader(itm.Access())
 	return b
 }
 
+//访问缓存的内容
 func (itm *cacheItem) Access() []byte {
 	itm.lock.Lock()
 	defer itm.lock.Unlock()
@@ -72,12 +76,14 @@ func (itm *cacheItem) Access() []byte {
 	return itm.content
 }
 
+//获取缓存上次访问时间的间隔
 func (itm *cacheItem) Dur() time.Duration {
-        itm.lock.Lock()
-        defer itm.lock.Unlock()
-        return time.Now().Sub(itm.Lastaccess)
+	itm.lock.Lock()
+	defer itm.lock.Unlock()
+	return time.Now().Sub(itm.Lastaccess)
 }
 
+//缓存文件
 func cacheFile(path string, maxSize int64) (itm *cacheItem, err error) {
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -105,6 +111,7 @@ func cacheFile(path string, maxSize int64) (itm *cacheItem, err error) {
 // FileCache represents a cache in memory.
 // An ExpireItem value of 0 means that items should not be expired based
 // on time in memory.
+//代表内存中的缓存，属性ExpireItem值为0表示改项目在内存中没有过期时间限制。
 type FileCache struct {
 	dur        time.Duration
 	items      map[string]*cacheItem
@@ -115,10 +122,11 @@ type FileCache struct {
 	MaxItems   int   // Maximum number of files to cache
 	MaxSize    int64 // Maximum file size to store
 	ExpireItem int   // Seconds a file should be cached for
-	Every      int   // Run an expiration check Every seconds
+	Every      int   // Run an expiration check Every seconds，每隔多少秒检查一次缓存是否到期
 }
 
 // NewDefaultCache returns a new FileCache with sane defaults.
+//初试化一个默认的缓存
 func NewDefaultCache() *FileCache {
 	return &FileCache{
 		dur:        time.Since(time.Now()),
@@ -131,20 +139,24 @@ func NewDefaultCache() *FileCache {
 	}
 }
 
+//缓存锁
 func (cache *FileCache) lock() {
 	cache.mutex.Lock()
 }
 
+//解锁缓存
 func (cache *FileCache) unlock() {
 	cache.mutex.Unlock()
 }
 
+//判断缓存是否为空
 func (cache *FileCache) isCacheNull() bool {
 	cache.lock()
 	defer cache.unlock()
 	return cache.items == nil
 }
 
+//获取缓存项
 func (cache *FileCache) getItem(name string) (itm *cacheItem, ok bool) {
 	if cache.isCacheNull() {
 		return nil, false
@@ -156,6 +168,7 @@ func (cache *FileCache) getItem(name string) (itm *cacheItem, ok bool) {
 }
 
 // addItem is an internal function for adding an item to the cache.
+//私有方法，添加一个项目到缓存中
 func (cache *FileCache) addItem(name string) (err error) {
 	if cache.isCacheNull() {
 		return
@@ -182,6 +195,7 @@ func (cache *FileCache) addItem(name string) (err error) {
 	return nil
 }
 
+//删除一个缓存项
 func (cache *FileCache) deleteItem(name string) {
 	_, ok := cache.getItem(name)
 	if ok {
@@ -210,6 +224,7 @@ func (cache *FileCache) itemListener() {
 // The force argument is used to indicate it should remove at least one
 // entry; for example, if a large number of files are cached at once, none
 // may appear older than another.
+//处理最老的一个过期项目；如果参数force为true，将会删除掉一个元素(删除最早过期的项目)，即使没有过期的项目。
 func (cache *FileCache) expireOldest(force bool) {
 	oldest := time.Now()
 	oldestName := ""
@@ -231,6 +246,7 @@ func (cache *FileCache) expireOldest(force bool) {
 // vacuum is a background goroutine responsible for cleaning the cache.
 // It runs periodically, every cache.Every seconds. If cache.Every is set
 // to 0, it will not run.
+//一个后台goroutine，清除缓存用。
 func (cache *FileCache) vacuum() {
 	if cache.Every < 1 {
 		return
@@ -262,6 +278,7 @@ func (cache *FileCache) vacuum() {
 // FileChanged returns true if file should be expired based on mtime.
 // If the file has changed on disk or no longer exists, it should be
 // expired.
+//判断文件是否被更新（硬盘更新或者被删除）
 func (cache *FileCache) changed(name string) bool {
 	itm, ok := cache.getItem(name)
 	if !ok || itm == nil {
@@ -277,6 +294,7 @@ func (cache *FileCache) changed(name string) bool {
 }
 
 // Expired returns true if the item has not been accessed recently.
+//判断缓存项是否过期，如果一个项目从没访问过也会返回true
 func (cache *FileCache) expired(name string) bool {
 	itm, ok := cache.getItem(name)
 	if !ok {
@@ -293,6 +311,7 @@ func (cache *FileCache) expired(name string) bool {
 }
 
 // itemExpired returns true if an item is expired.
+//判断缓存项是否过期(被更新过也会视为过期)
 func (cache *FileCache) itemExpired(name string) bool {
 	if cache.changed(name) {
 		return true
@@ -303,6 +322,7 @@ func (cache *FileCache) itemExpired(name string) bool {
 }
 
 // Active returns true if the cache has been started, and false otherwise.
+//判断缓存是否开启
 func (cache *FileCache) Active() bool {
 	if cache.in == nil || cache.isCacheNull() {
 		return false
@@ -311,6 +331,7 @@ func (cache *FileCache) Active() bool {
 }
 
 // Size returns the number of entries in the cache.
+//返回缓存中的缓存项数目
 func (cache *FileCache) Size() int {
 	cache.lock()
 	defer cache.unlock()
@@ -318,6 +339,7 @@ func (cache *FileCache) Size() int {
 }
 
 // FileSize returns the sum of the file sizes stored in the cache
+//返回缓存中的所有文件大小的总和
 func (cache *FileCache) FileSize() (totalSize int64) {
 	cache.lock()
 	defer cache.unlock()
@@ -328,6 +350,7 @@ func (cache *FileCache) FileSize() (totalSize int64) {
 }
 
 // StoredFiles returns the list of files stored in the cache.
+//返回缓存中的所有文件列表
 func (cache *FileCache) StoredFiles() (fileList []string) {
 	fileList = make([]string, 0, cache.Size())
 	if cache.isCacheNull() || cap(fileList) == 0 {
@@ -343,6 +366,7 @@ func (cache *FileCache) StoredFiles() (fileList []string) {
 }
 
 // InCache returns true if the item is in the cache.
+//判断一个文件是否在缓存中
 func (cache *FileCache) InCache(name string) bool {
 	if cache.changed(name) {
 		cache.deleteItem(name)
@@ -353,6 +377,7 @@ func (cache *FileCache) InCache(name string) bool {
 }
 
 // WriteItem writes the cache item to the specified io.Writer.
+//把缓存项写到io中去
 func (cache *FileCache) WriteItem(w io.Writer, name string) (err error) {
 	itm, ok := cache.getItem(name)
 	if !ok {
@@ -401,6 +426,7 @@ func (cache *FileCache) GetItemString(name string) (content string, ok bool) {
 // the error ItemNotInCache is returned to indicate that the item was pulled
 // from the filesystem and not the cache, unless the SquelchItemNotInCache
 // global option is set; in that case, returns no error.
+//根据文件名获取缓存中的文件内容
 func (cache *FileCache) ReadFile(name string) (content []byte, err error) {
 	if cache.InCache(name) {
 		content, _ = cache.GetItem(name)
@@ -468,7 +494,7 @@ func (cache *FileCache) HttpWriteFile(w http.ResponseWriter, r *http.Request) {
 		if mtype != "" && mtype != ctype {
 			ctype = mtype
 		}
-                header := w.Header()
+		header := w.Header()
 		header.Set("content-length", fmt.Sprintf("%d", itm.Size))
 		header.Set("content-disposition",
 			fmt.Sprintf("filename=%s", filepath.Base(path)))
