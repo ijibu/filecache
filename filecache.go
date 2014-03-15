@@ -44,6 +44,7 @@ var (
 var SquelchItemNotInCache = true
 
 // Mumber of items to buffer adding to the file cache.
+//配置缓存池的大小，当前正在往缓存中添加的文件数。
 var NewCachePipeSize = 4
 
 //缓存项
@@ -246,7 +247,7 @@ func (cache *FileCache) expireOldest(force bool) {
 // vacuum is a background goroutine responsible for cleaning the cache.
 // It runs periodically, every cache.Every seconds. If cache.Every is set
 // to 0, it will not run.
-//一个后台goroutine，清除缓存用。
+//一个后台goroutine，定期清除过期缓存。
 func (cache *FileCache) vacuum() {
 	if cache.Every < 1 {
 		return
@@ -477,7 +478,7 @@ func (cache *FileCache) WriteFile(w io.Writer, name string) (err error) {
 }
 
 func (cache *FileCache) HttpWriteFile(w http.ResponseWriter, r *http.Request) {
-	path, err := url.QueryUnescape(r.URL.String())
+	path, err := url.QueryUnescape(r.URL.String()) //对URL进行解码
 	if err != nil {
 		http.ServeFile(w, r, r.URL.Path)
 	} else if len(path) > 1 {
@@ -487,10 +488,11 @@ func (cache *FileCache) HttpWriteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	//如果已经被缓存，则直接获取缓存的内容并返回。
 	if cache.InCache(path) {
 		itm := cache.items[path]
-		ctype := http.DetectContentType(itm.Access())
-		mtype := mime.TypeByExtension(filepath.Ext(path))
+		ctype := http.DetectContentType(itm.Access())     //根据内容返回 MIME type
+		mtype := mime.TypeByExtension(filepath.Ext(path)) //根据扩展名返回 MIME type
 		if mtype != "" && mtype != ctype {
 			ctype = mtype
 		}
@@ -502,8 +504,8 @@ func (cache *FileCache) HttpWriteFile(w http.ResponseWriter, r *http.Request) {
 		w.Write(itm.Access())
 		return
 	}
-	go cache.Cache(path)
-	http.ServeFile(w, r, path)
+	go cache.Cache(path)       //缓存文件
+	http.ServeFile(w, r, path) //返回文件的内容
 }
 
 // HttpHandler returns a valid HTTP handler for the given cache.
@@ -535,6 +537,7 @@ func (cache *FileCache) CacheNow(name string) (err error) {
 // Start activates the file cache; it will start up the background caching
 // and automatic cache expiration goroutines and initialise the internal
 // data structures.
+//启动缓存运行。它将创建两个goroutines(C中叫子线程)，1负责在后台监听缓存请求，2负责自动删除过期的缓存。同事初始化结构体的数据。
 func (cache *FileCache) Start() error {
 	if cache.in != nil {
 		close(cache.in)
