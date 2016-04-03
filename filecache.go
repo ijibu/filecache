@@ -498,8 +498,7 @@ func (cache *FileCache) HttpWriteFile(w http.ResponseWriter, r *http.Request) {
 		}
 		header := w.Header()
 		header.Set("content-length", fmt.Sprintf("%d", itm.Size))
-		header.Set("content-disposition",
-			fmt.Sprintf("filename=%s", filepath.Base(path)))
+		header.Set("content-disposition", fmt.Sprintf("filename=%s", filepath.Base(path)))
 		header.Set("content-type", ctype)
 		w.Write(itm.Access())
 		return
