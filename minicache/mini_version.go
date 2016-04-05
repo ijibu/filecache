@@ -30,6 +30,10 @@ var (
 	WriteIncomplete  = errors.New("incomplete write of cache item")
 )
 
+var (
+	cache *FileCache
+)
+
 //存在并发访问的情况下，就需要加锁了。
 type cacheItem struct {
 	content    []byte     //缓存的内容
@@ -292,7 +296,9 @@ func (cache *FileCache) HttpWriteFile(w http.ResponseWriter, r *http.Request) {
 
 	name := r.Form["name"]
 	fileName := strings.Join(name, "")
-
+	if len(fileName) == 0 {
+		return
+	}
 	if cache.InCache(fileName) {
 		log.Printf("read %s from cache\n", fileName)
 		itm := cache.items[fileName]
@@ -345,11 +351,39 @@ func cacheFile(path string, maxSize int64) (itm *cacheItem, err error) {
 	return
 }
 
+func (cache *FileCache) HttpRemove(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm() //解析参数，默认是不会解析的
+	name := r.Form["name"]
+	fileName := strings.Join(name, "")
+
+	if cache.InCache(fileName) {
+		log.Printf("delete %s from cache\n", fileName)
+		cache.Remove(fileName)
+		return
+	}
+
+	return
+}
+
+func (cache *FileCache) Remove(name string) (ok bool, err error) {
+	_, ok = cache.items[name]
+	if !ok {
+		return
+	}
+	cache.deleteItem(name)
+	_, valid := cache.getItem(name)
+	if valid {
+		ok = false
+	}
+	return
+}
+
 func main() {
 	cache := &FileCache{}
-	handler = HttpHandler(cache)
+	//handler = HttpHandler(cache)
 	cache.Start()
-	//http.HandleFunc("/", cache.HttpWriteFile)
-	http.HandleFunc("/", handler)
+	http.HandleFunc("/", cache.HttpWriteFile)
+	//http.HandleFunc("/", Dispatch)
+	http.HandleFunc("/delete", cache.HttpRemove)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
